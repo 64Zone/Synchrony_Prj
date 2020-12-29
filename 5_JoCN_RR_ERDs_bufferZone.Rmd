@@ -1,0 +1,330 @@
+---
+title: "JoCN_RR_beta_ERD/S_bufferZone"
+author: "Sicong Liu"
+date: "8/30/2020"
+output:
+  html_document: default
+  # pdf_document: default
+  # word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, echo = FALSE, dpi = 300, cache.lazy = FALSE, tidy = "styler", out.width = "100%", fig.align = "center") 
+
+options(
+        dplyr.print_min=Inf,
+        tibble.width=Inf, 
+        tibble.print_max=20,
+        digits = 3, 
+        scipen=999999
+        )
+```
+
+## Plot both warning-locked and stimulus-locked ERD/S
+##### Warning-locked ERD/S  data
+```{r warning_locked_datasets, include=FALSE}
+rm(list = ls())
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+myPath <- '~/Desktop/'
+
+# --- load in data ---
+Traj <- read_csv(paste0(myPath, 'DiVE_trajectories.csv'))
+df <- read_csv(paste0(myPath, 'prestimTrials_WarningSignal_1500_betaFiltered.csv')) %>%  # new data Jillian supervised (221 MB)
+  left_join(Traj, by=c('Var1','Var2','Var3','Var4')) %>%
+  rename(day=Var1, subject=Var2, block=Var3, trial=Var4) %>%
+  select(day, subject, block, trial, height, direction, everything()) 
+
+# --- parameters ---
+START = 251   # the 751th ms corresponds to trap house turning green 
+END = 1250
+REFERENCE_END = 750
+TIME_LENGTH = length(START:END)
+
+# --- ERD/S direction data loop ---
+DIRECTION = c('left', 'center', 'right')
+DATA_LENGTH = TIME_LENGTH * length(DIRECTION) * 20                            # time * direction * subject 
+ERD_value = vector('numeric', DATA_LENGTH)
+time = vector('numeric', DATA_LENGTH)
+participant = vector('numeric', DATA_LENGTH)
+dir = vector('character', DATA_LENGTH)
+
+for (i in 1:20) {                    # subject
+  for (j in 1:length(DIRECTION)) {   # direction
+    # load filter data
+    data <- df %>%                                                            
+      filter(subject==i, direction==DIRECTION[j]) 
+    
+    # get ERD/S data 
+    signal <- as.matrix(data[7:ncol(data)])[ , START:END]                     # EEG signal
+    signal_avg <- colMeans(signal)                                            # trial mean across samples
+    power_avg <- colMeans(t(apply(signal, 1, function(S){(S-signal_avg)^2}))) # subtract trial mean (which represents evoked potentials)
+                                                                              # calculate beta power 
+                                                                              # power mean ('A') across samples
+    reference <- mean(power_avg[(START-START):(REFERENCE_END-START)])                                   # reference ('R') for calculating ERD/S
+    ERD <- 100*(power_avg-reference)/reference                                # ERD/S formula from Graimann02 (pp. 44-45)
+    
+    # log processed data
+    low_k = TIME_LENGTH*(i-1)*length(DIRECTION) + TIME_LENGTH*(j-1) + 1       # low bound index
+    high_k = low_k - 1 + TIME_LENGTH
+    
+    if (i==11 & j==3) {                                                       # remove the 'noisy' ERD for this particular case
+      ERD_value[low_k:high_k] = 0
+    }
+    else {
+      ERD_value[low_k:high_k] = t(ERD)  
+    } 
+    time[low_k:high_k] = (START-REFERENCE_END):(END-REFERENCE_END)
+    participant[low_k:high_k] = rep(i, TIME_LENGTH)
+    dir[low_k:high_k] = rep(DIRECTION[j], TIME_LENGTH)
+  }
+}
+ERD_warning_dir <- data.frame(ERD_value, time, participant, dir)         # generate data frame for plotting
+
+# --- ERD/S height data loop ---
+HEIGHT = c('high','low')
+DATA_LENGTH = TIME_LENGTH * length(HEIGHT) * 20                          # time * direction * subject 
+ERD_value = vector('numeric', DATA_LENGTH)
+time = vector('numeric', DATA_LENGTH)
+participant = vector('numeric', DATA_LENGTH)
+hght = vector('character', DATA_LENGTH)
+
+for (i in 1:20) {                    # subject
+  for (j in 1:length(HEIGHT)) {      # height
+    # load filter data
+    data <- df %>%                                                            
+      filter(subject==i, height==HEIGHT[j]) 
+    
+    # get ERD/S data 
+    signal <- as.matrix(data[7:ncol(data)])[ , START:END]                           # EEG signal
+    signal_avg <- colMeans(signal)                                            # trial mean across samples
+    power_avg <- colMeans(t(apply(signal, 1, function(S){(S-signal_avg)^2}))) # subtract trial mean (which represents evoked potentials)
+                                                                              # calculate beta power 
+                                                                              # power mean ('A') across samples
+    reference <- mean(power_avg[(START-START):(REFERENCE_END-START)])                         # reference ('R') for calculating ERD/S
+    ERD <- 100*(power_avg-reference)/reference                                # ERD/S formula from Graimann02 (pp. 44-45)
+    
+    # log processed data
+    low_k = TIME_LENGTH*(i-1)*length(HEIGHT) + TIME_LENGTH*(j-1) + 1          # low bound index
+    high_k = low_k - 1 + TIME_LENGTH
+    
+    ERD_value[low_k:high_k] = t(ERD)     
+    time[low_k:high_k] = (START-REFERENCE_END):(END-REFERENCE_END)
+    participant[low_k:high_k] = rep(i, TIME_LENGTH)
+    hght[low_k:high_k] = rep(HEIGHT[j], TIME_LENGTH)
+  }
+}
+ERD_warning_hght <- data.frame(ERD_value, time, participant, hght)         # generate data frame for plotting
+
+rm(df); rm(Traj);                                                          # save memory
+```
+
+##### Stimulus-locked ERD/S data
+```{r stimulus_locked_datasets, include=FALSE}
+# --- load in data ---
+Traj <- read_csv(paste0(myPath, 'DiVE_trajectories.csv'))
+df <- read_csv(paste0(myPath, 'prelaunchTrials_1500_betaFiltered.csv')) %>%  # new data Jillian supervised (221 MB)
+  left_join(Traj, by=c('Var1','Var2','Var3','Var4')) %>%
+  rename(day=Var1, subject=Var2, block=Var3, trial=Var4) %>%
+  select(day, subject, block, trial, height, direction, everything()) 
+# sum(is.na(df)); which(is.na(df[10])); df[24005,1:10]; # It suggests that subject 11 has one NA observation (1500 NAs) on day 3
+df[24005, 7:1506] <- df %>% filter(subject==11) %>% select(-c(1:6)) %>% as.matrix() %>% colMeans(na.rm = TRUE) %>% t(); sum(is.na(df)); # replace the NAs with individual mean 
+
+# --- parameters ---
+START = 251   # the 751th ms corresponds to trap house turning green 
+END = 1250
+REFERENCE_START = 750  # use post-stimulus window as reference
+TIME_LENGTH = length(START:END)
+
+# --- ERD/S direction data loop ---
+DIRECTION = c('left', 'center', 'right')
+DATA_LENGTH = TIME_LENGTH * length(DIRECTION) * 20                            # time * direction * subject 
+ERD_value = vector('numeric', DATA_LENGTH)
+time = vector('numeric', DATA_LENGTH)
+participant = vector('numeric', DATA_LENGTH)
+dir = vector('character', DATA_LENGTH)
+
+for (i in 1:20) {                    # subject
+  for (j in 1:length(DIRECTION)) {   # direction
+    # load filter data
+    data <- df %>%                                                            
+      filter(subject==i, direction==DIRECTION[j]) 
+    
+    # get ERD/S data 
+    signal <- as.matrix(data[7:ncol(data)])[ , START:END]                     # EEG signal
+    signal_avg <- colMeans(signal)                                            # trial mean across samples
+    power_avg <- colMeans(t(apply(signal, 1, function(S){(S-signal_avg)^2}))) # subtract trial mean (which represents evoked potentials)
+                                                                              # calculate beta power 
+                                                                              # power mean ('A') across samples
+    reference <- mean(power_avg[(REFERENCE_START-START):(END-START)])         # reference ('R') for calculating ERD/S
+    ERD <- 100*(power_avg-reference)/reference                                # ERD/S formula from Graimann02 (pp. 44-45)
+    
+    # log processed data
+    low_k = TIME_LENGTH*(i-1)*length(DIRECTION) + TIME_LENGTH*(j-1) + 1       # low bound index
+    high_k = low_k - 1 + TIME_LENGTH
+    
+    ERD_value[low_k:high_k] = t(ERD)     
+    time[low_k:high_k] = (START-REFERENCE_START):(END-REFERENCE_START)
+    participant[low_k:high_k] = rep(i, TIME_LENGTH)
+    dir[low_k:high_k] = rep(DIRECTION[j], TIME_LENGTH)
+  }
+}
+ERD_launch_dir <- data.frame(ERD_value, time, participant, dir)               # generate data frame for plotting
+
+# --- ERD/S height data loop ---
+HEIGHT = c('high','low')
+DATA_LENGTH = TIME_LENGTH * length(HEIGHT) * 20                               # time * direction * subject 
+ERD_value = vector('numeric', DATA_LENGTH)
+time = vector('numeric', DATA_LENGTH)
+participant = vector('numeric', DATA_LENGTH)
+hght = vector('character', DATA_LENGTH)
+
+for (i in 1:20) {                    # subject
+  for (j in 1:length(HEIGHT)) {   # height
+    # load filter data
+    data <- df %>%                                                            
+      filter(subject==i, height==HEIGHT[j]) 
+    
+    # get ERD/S data 
+    signal <- as.matrix(data[7:ncol(data)])[ , START:END]                     # EEG signal
+    signal_avg <- colMeans(signal)                                            # trial mean across samples
+    power_avg <- colMeans(t(apply(signal, 1, function(S){(S-signal_avg)^2}))) # subtract trial mean (which represents evoked potentials)
+                                                                              # calculate beta power 
+                                                                              # power mean ('A') across samples
+    reference <- mean(power_avg[(REFERENCE_START-START):(END-START)])         # reference ('R') for calculating ERD/S
+    ERD <- 100*(power_avg-reference)/reference                                # ERD/S formula from Graimann02 (pp. 44-45)
+    
+    # log processed data
+    low_k = TIME_LENGTH*(i-1)*length(HEIGHT) + TIME_LENGTH*(j-1) + 1          # low bound index
+    high_k = low_k - 1 + TIME_LENGTH
+    
+    ERD_value[low_k:high_k] = t(ERD)     
+    time[low_k:high_k] = (START-REFERENCE_START):(END-REFERENCE_START)
+    participant[low_k:high_k] = rep(i, TIME_LENGTH)
+    hght[low_k:high_k] = rep(HEIGHT[j], TIME_LENGTH)
+  }
+}
+ERD_launch_hght <- data.frame(ERD_value, time, participant, hght)             # generate data frame for plotting
+
+rm(df); rm(Traj);
+```
+
+##### ERD/S plot themes
+```{r plot_themes, include = FALSE}
+library(ggplot2)
+library(viridis)
+
+ERD_theme <-
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0, size = 24),
+        plot.subtitle = element_text(face = "italic", hjust = 0, size = 22),
+        plot.caption = element_text(face = "italic"),
+        # axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=18),
+        axis.title.x = element_text(size=22, margin = margin(t = 20, r = 0, b = 0, l = 0)),
+        axis.title.y = element_text(size=22, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.line = element_line(color = 'gray'),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.border = element_blank(),
+        strip.text.x = element_text(face='bold', size = 22, colour = "white"),
+        strip.background = element_rect(fill="darkblue"),
+        legend.title = element_text(color = "black", size = 20),
+        legend.text=element_text(size=18),
+        legend.background = element_rect(fill = "gray90"),
+        legend.position="right")
+```
+
+##### ERD/S plots 
+> Reviewer 1: The preparatory EEG signals were summed to a single value for each frequency band in each trial, presumably (as it wasn’t clearly described) by averaging the band power over a 1-second window prior to the launch of the target and across all EEG channels. This seems like a very rough and random approach, both temporally and specially. First, it is not clear to me why the authors are averaging the power across all electrodes, ignoring all previous findings of preparatory EEG ac0vity in defined regions. Moreover, considering the very clear and well-defined characteris0c of the beta power prior to movement (foreperiod enhancement followed by a decay towards a nega0ve peak of the beta suppression just at the reac0on 0me) it is reasonable to assume that there is some structure in the beta power during this window. One would assume that in this task the beta enhancement will start following the que of the trap house turning green, so during this window we will have the peak of the enhancement, which might be a much beSer predictor than the average over the en0re window. The authors should plot the averaged beta band power 0me course over a trial or (ideally) the full power spectra. If the power spectra (and specifically the beta band) have a clear structure over the preparatory 0me window it should be considered in the analysis.
+
+<span style="color: red;"> *Below we plotted the event-related (de)synchronization according to Graimann et al. (2002) and Pfurtscheller & Da Silva (1999). The plots were organized into two main groups. The first plot group includes each participant's ERD of para-Rolandic (i.e., C3, C4, Cz) Beta (13-30 Hz) power for each target launch direction (Figure 1) and height (Figure 2). All the ERDs are time-locked to the moment of warning signal (i.e., trap house turning green). The second plot group are organized in an identical way to the first group except that the ERDs are time-locked to the moment of stimulus presence (i.e., target launch). The time windows for both plot groups were selected given the study design. In particular, the length of the time windows is shorter than those in studies focusing on ERDs. Perhaps due to such a reason, the temporal structure of the ERD in our interested time window of task preparation, 500 ms after trap house turning greeen and 500 ms prior to target launch, seems not variable. Given that we are interested in investigating the predictive power of relatively tonic changes in Beta power on task performance, the descriptive pattern in the ERD plots seems to support our decision of using the average value of Beta power.* </span>
+
+**Reference:** 
+1. Graimann, B., Huggins, J. E., Levine, S. P., & Pfurtscheller, G. (2002). Visualization of significant ERD/ERS patterns in multichannel EEG and ECoG data. Clinical neurophysiology, 113(1), 43-47.
+2. Pfurtscheller, G., & Da Silva, F. L. (1999). Event-related EEG/MEG synchronization and desynchronization: basic principles. Clinical Neurophysiology, 110(11), 1842-1857.
+
+```{r ERD/S_plots, fig.width = 16, fig.asp = .5, warning=FALSE}
+# --- warning-signal locked ---
+ERD_warning_dir %>%  
+  # filter(participant == 11 & dir == 'right') %>%          # investigate the strange case of ERD, which seems to be triggered by noisy signal (show data points by increasing alpha to non-zero values)
+  mutate(dir=fct_relevel(as.factor(dir), levels=c('left','center','right')),
+         participant=as.factor(participant)) %>%
+  ggplot(aes(x=time, y=ERD_value, group=participant, color=participant)) + 
+    # geom_point(alpha=0) +                                 # suppress data points with oscillations esp. towards boundaries
+    geom_smooth(method = 'loess', se=F) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    scale_color_viridis(discrete = T) + 
+    facet_wrap(~dir, nrow=1) + 
+    annotate("rect", xmin = -500, xmax = 0, ymin = -Inf, ymax = Inf, alpha = .1) + 
+    labs(title = "Figure R1: ERD/S of para-Rolandic (C3, Cz, C4) Beta (13~30 Hz) power",
+         subtitle = "Banner text corresponds to target launch direction. \nShaded area corresponds to the ERD/S reference window.",
+         y = 'Event-Related (De)synchronization (%)',
+         x = "Warning-Locked Time (ms)",
+         color='Participant #') +
+    ylim(-100, 100) +
+    ERD_theme +
+  ggsave('~/Desktop/DiVE_rev/Plot_ERD/New_bufferZone/warningLock_dir.jpeg', width = 16, height = 8, dpi = 300)
+
+ERD_warning_hght %>% 
+  mutate(participant=as.factor(participant)) %>%
+  ggplot(aes(x=time, y=ERD_value, group=participant, color=participant)) + 
+    # geom_point(alpha=0) +                                 # suppress data points with oscillations esp. towards boundaries
+    geom_smooth(method = 'loess', se=F) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    scale_color_viridis(discrete = T) + 
+    facet_wrap(~hght, nrow=1) + 
+    annotate("rect", xmin = -500, xmax = 0, ymin = -Inf, ymax = Inf, alpha = .1) + 
+    labs(title = "Figure R2: ERD/S of para-Rolandic (C3, Cz, C4) Beta (13~30 Hz) power",
+         subtitle = "Banner text corresponds to target launch height. \nShaded area corresponds to the ERD/S reference window.",
+         y = 'Event-Related (De)synchronization (%)',
+         x = "Warning-Locked Time (ms)",
+         color='Participant #') +
+    ylim(-100, 100) +
+    ERD_theme +
+  ggsave('~/Desktop/DiVE_rev/Plot_ERD/New_bufferZone/warningLock_heigh.jpeg', width = 16, height = 8, dpi = 300)
+
+# --- launch-locked ---
+ERD_launch_dir %>% 
+  mutate(dir=fct_relevel(as.factor(dir), levels=c('left','center','right')),
+         participant=as.factor(participant)) %>%
+  ggplot(aes(x=time, y=ERD_value, group=participant, color=participant)) + 
+    # geom_point(alpha=0) +                                 # suppress data points with oscillations esp. towards boundaries
+    geom_smooth(method = 'loess', se=F) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    scale_color_viridis(discrete = T) + 
+    facet_wrap(~dir, nrow=1) + 
+    annotate("rect", xmin = 0, xmax = 500, ymin = -Inf, ymax = Inf, alpha = .1) + 
+    labs(title = "Figure R3: ERD/S of para-Rolandic (C3, Cz, C4) Beta (13~30 Hz) power",
+         subtitle = "Banner text corresponds to target launch direction. \nShaded area corresponds to the ERD/S reference window.",
+         y = 'Event-Related (De)synchronization (%)',
+         x = "Stimulus-Locked Time (ms)",
+         color='Participant #') +
+    ylim(-100, 100) +
+    ERD_theme +
+  ggsave('~/Desktop/DiVE_rev/Plot_ERD/New_bufferZone/stimulusLock_dir.jpeg', width = 16, height = 8, dpi = 300)
+
+ERD_launch_hght %>% 
+  mutate(participant=as.factor(participant)) %>%
+  ggplot(aes(x=time, y=ERD_value, group=participant, color=participant)) + 
+    # geom_point(alpha=0) +                                 # suppress data points with oscillations esp. towards boundaries
+    geom_smooth(method = 'loess', se=F) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    scale_color_viridis(discrete = T) + 
+    facet_wrap(~hght, nrow=1) + 
+    annotate("rect", xmin = 0, xmax = 500, ymin = -Inf, ymax = Inf, alpha = .1) + 
+    labs(title = "Figure R4: ERD/S of para-Rolandic (C3, Cz, C4) Beta (13~30 Hz) power",
+         subtitle = "Banner text corresponds to target launch height. \nShaded area corresponds to the ERD/S reference window.",
+         y = 'Event-Related (De)synchronization (%)',
+         x = "Stimulus-Locked Time (ms)",
+         color='Participant #') +
+    ylim(-100, 100) +
+    ERD_theme +
+  ggsave('~/Desktop/DiVE_rev/Plot_ERD/New_bufferZone/stimulusLock_heigh.jpeg', width = 16, height = 8, dpi = 300)
+```
+
+<span style="color: red;"> *In addition to ERD plots, we also performed time-frequency analysis by applying continuous wavelet tranformation to EEG recordings from the para-Rolandic region (C3, C4, Cz). Similar to the two groups of ERD plot, the time-frequency analysis results were plotted in two groups of plot, one corresponding to recordings time-locked to the moment of warning signal (i.e., trap house turning green) and the other time-locked to the moment of stimulus presence (i.e., target launch). In general, the time-frequency analysis showed consistent results with the ERD plots in that the Beta power in the prepartory phase of the shooting task did not seem to show high variability.* </span>
+
+

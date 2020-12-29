@@ -1,0 +1,344 @@
+---
+title: "SE_behavioral_clean"
+author: "Sicong Liu"
+date: "11/12/2020"
+output:
+  # html_document:
+    # df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, echo = FALSE, dpi = 300, cache.lazy = FALSE, tidy = "styler", out.width = "100%", fig.align = "center") 
+
+options(
+        dplyr.print_min=Inf,
+        tibble.width=Inf, 
+        tibble.print_max=20,
+        digits = 3, 
+        scipen=999999
+        )
+```
+
+## clean data by removing no-response, outlier, and filler trials
+```{r clean data, include=FALSE}
+rm(list = ls())
+options(scipen=999)
+library(lmerTest)                                                                                 # add t test p values
+library(tidyverse)
+
+'%!in%' <- Negate('%in%')
+
+df <- read_csv('~/Desktop/Data.csv') %>% 
+  select(Response, TimeError, subid, block, trial, speed, direction, delta, theta, alpha, beta) %>%             # n = 23400, trial2rej 
+  # write.csv('~/Desktop/synchrony_behavioral_101220.csv')                                        # for Greg
+  filter(subid %!in% c(6, 22)) %>%                                                                # remove problem participants
+  filter(subid %!in% c(4, 24)) %>%                                                                # to be considered for removal
+  mutate(across(c(subid, speed, direction), factor)) %>%
+  group_by(subid) %>%                                                                             # remove RT > individual 3SD
+  mutate(TimeError=ifelse(abs(scale(TimeError)) > 3, NA, TimeError)) %>%
+  ungroup() %>%
+  mutate(TimeError=ifelse(Response > 1, NA, TimeError),
+         AbsTimeError = abs(TimeError)) %>%                                                          # absolute time error
+  drop_na()
+
+df %>% str
+```
+
+```{r LMEM}
+library(lme4)
+library(lmerTest)
+
+p_base <- lmer(TimeError ~ 1 + (1 + I(exp(-trial))|subid), data=df); sink(paste0('~/Desktop/', 'LMEM_base.txt')); summary(p_base); sink()
+
+p_rt_new <- lmer(TimeError ~ speed*direction + delta + theta + alpha + beta + trial + (1 + I(exp(-trial))|subid), data=df); sink(paste0('~/Desktop/', 'LMEM1.txt')); summary(p_rt_new); sink()
+
+
+p_base1 <- lmer(AbsTimeError ~ 1 + (1 + I(exp(-trial))|subid), data=df); sink(paste0('~/Desktop/', 'LMEM_base_abs.txt')); summary(p_base1); sink()
+
+p_rt_new1 <- lmer(AbsTimeError ~ speed*direction + delta + theta + alpha + beta + trial + (1 + I(exp(-trial))|subid), data=df); sink(paste0('~/Desktop/', 'LMEM1_abs.txt')); summary(p_rt_new1); sink()
+
+```
+
+
+## EDA
+```{r EDA_RT, include=FALSE}
+sum(is.na(df$TimeError))
+df %>% count(subid)
+df %>% summary
+df_ind_cond <- df %>%                                                                                         
+  group_by(subid, speed, direction) %>%
+  summarise(M_te = mean(TimeError, na.rm=T),
+            SD_te = sd(TimeError, na.rm = T),
+            M_abs_te = mean(AbsTimeError, na.rm=T),
+            SD_abs_te = sd(AbsTimeError, na.rm = T)) %>%
+  ungroup() 
+
+
+df_ind_cond %>%
+  select(-c(SD_te, SD_abs_te)) %>% 
+  pivot_wider(id_cols = subid, names_from=c(speed, direction), values_from = c(M_te, M_abs_te)) %>%
+  write_csv('~/Desktop/rmANOVA_data.csv')
+```
+
+## RT-ERP Correlation
+```{r EDA_RT_ERP_corr, include=FALSE, fig.width = 12, fig.asp = 0.8, warning=FALSE}
+library('corrr')
+# devtools::install_github("neuropsychology/psycho.R")  
+library('psycho')
+
+## Behavioral Data 
+df_ind_cond <- df %>%                                                                                        
+  group_by(subid, speed, direction) %>%
+  summarise(M_te = mean(TimeError, na.rm=T),
+            SD_te = sd(TimeError, na.rm = T),
+            M_abs_te = mean(AbsTimeError, na.rm=T),
+            SD_abs_te = sd(AbsTimeError, na.rm = T)) %>%
+  ungroup() 
+
+## ERP Data 
+path <- '~/Desktop/erps/TXT/measure_all/'
+
+# write a function to clean each file
+ERP_data_format <- function(path, name) {
+  ERP_single_data <- read_table2(paste0(path, name)) %>%
+  separate(ERPset, into = c('subID','block','speed','direction'), sep = '_', remove = T) %>%
+  mutate(subID=str_remove(subID, pattern = 'SE')) %>%
+  rename(subid=subID) %>%
+  arrange(subid, direction, speed)
+}
+
+# index the file names
+ERP_data_name <- list.files(path, pattern = '.txt')[c(3,4,8,10,11)]
+
+# store and combine data files
+ERP_data <- tibble()
+for (i in 1:length(ERP_data_name)) {
+  if (i==1) {
+    name <- ERP_data_name[i]
+    ERP_data <- ERP_data_format(path, name)
+  } else {
+    name <- ERP_data_name[i]
+    ERPs <- ERP_data_format(path, name) 
+    ERP_data <- ERP_data %>%
+      left_join(ERPs, by=c('subid', 'block', 'direction', 'speed'))
+ }
+}
+
+# join RT and ERP data
+Data <- ERP_data %>%
+  left_join(df_ind_cond, byby=c('subid', 'direction', 'speed'))
+
+# further clean dataset
+Data <- Data %>%
+  dplyr::rename(P3_140170=bin1_P3,P7_140170=bin1_P7, P4_140170=bin1_P4, P8_140170=bin1_P8,
+         Fp1_150190=bin1_Fp1, Fp2_150190=bin1_Fp2,
+         O1_N2=bin1_O1.x, Oz_N2=bin1_Oz.x, O2_N2=bin1_O2.x,                # note: outbound [125 175]; inbound [100 150]
+         O1_P1_peak=bin1_O1.y, Oz_P1_peak=bin1_Oz.y, O2_P1_peak=bin1_O2.y,
+         O1_P1_lat=bin1_O1, Oz_P1_lat=bin1_Oz, O2_P1_lat=bin1_O2,
+         TimeError=M_te, abs_TimeError=M_abs_te) %>% 
+  select(-c(SD_te, SD_abs_te, block, subid, Fp1_150190, Fp2_150190)) 
+  
+Data %>%
+  filter(direction=='out', speed=='40') %>% 
+  select(-c(speed, direction)) %>%
+  psych::pairs.panels(stars = T) 
+  
+  
+  # corrr::correlate() %>%
+  # # Re-arrange a correlation data frame 
+  # # to group highly correlated variables closer together.
+  # corrr::rearrange(method = "MDS", absolute = FALSE) %>%
+  # corrr::shave() %>% 
+  # corrr::rplot(shape = 19, colors = c("red", "green"))
+  
+  
+  
+  
+
+
+```
+
+## EDA plots
+```{r EDA_RT plots, fig.width = 12, fig.asp = 1.618, warning=FALSE}
+library(ggplot2)
+library(ggridges)
+library(viridis)
+
+# plot1 <- df %>%
+#   ggplot(aes(x=TimeError, fill=direction)) + 
+#   geom_histogram(binwidth = 10, alpha=0.55) +
+#   geom_vline(xintercept = 0, size=0.15, color='black') +
+#   scale_x_continuous(limits = c(-200, 200)) + 
+#   facet_grid(subid~speed)
+# 
+# plot2 <- df %>%
+#   ggplot(aes(x=AbsTimeError, fill=direction)) + 
+#   geom_histogram(binwidth = 10, alpha=0.55) +
+#   geom_vline(xintercept = 0, size=0.15, color='black') +
+#   scale_x_continuous(limits = c(-20, 200)) + 
+#   facet_grid(subid~speed)
+
+plot1 <- df %>%                                                        
+  ggplot(aes(x=TimeError, y=subid, fill=speed)) +
+  stat_density_ridges(alpha = 0.5, quantile_lines = T, quantiles = 2, 
+                      scale = 0.7, show.legend = T, na.rm = T, 
+                      jittered_points = T, point_alpha = .3, point_size = 0.9, 
+                      position = 'raincloud') + 
+  scale_fill_viridis(discrete = T) + 
+  facet_wrap(~ direction, scales = "free_x")
+
+plot2 <- df %>%                                                        
+  ggplot(aes(x=TimeError, y=speed, fill=direction)) +
+  stat_density_ridges(alpha = 0.4, quantile_lines = T, quantiles = 2, 
+                      scale = 2, show.legend = T, na.rm = T, 
+                      jittered_points = T, point_alpha = .3, point_size = 0.9, 
+                      position = 'raincloud') + 
+  scale_fill_viridis(discrete = T) + 
+  facet_wrap(~ subid, scales = "free_x")
+
+
+plot3 <- df %>%                                                        
+  ggplot(aes(x=AbsTimeError, y=subid, fill=speed)) +
+  stat_density_ridges(alpha = 0.5, quantile_lines = T, quantiles = 2, 
+                      scale = 0.7, show.legend = T, na.rm = T, 
+                      jittered_points = T, point_alpha = .3, point_size = 0.9, 
+                      position = 'raincloud') + 
+  scale_fill_viridis(discrete = T) + 
+  facet_wrap(~ direction, scales = "free_x")
+
+
+plot4 <- df %>%                                                        
+  ggplot(aes(x=AbsTimeError, y=speed, fill=direction)) +
+  stat_density_ridges(alpha = 0.4, quantile_lines = T, quantiles = 2, 
+                      scale = 2, show.legend = T, na.rm = T, 
+                      jittered_points = T, point_alpha = .3, point_size = 0.9, 
+                      position = 'raincloud') + 
+  scale_fill_viridis(discrete = T) + 
+  facet_wrap(~ subid, scales = "free_x")
+
+plot1; plot2; plot3; plot4;
+
+```
+
+```{r format for JASP}
+# for testing occipital electrodes (VEPs)
+JASP_format <- function(path, name) {
+  p1amp <- read_table2(paste0(path, name, '.txt')) %>%
+  separate(ERPset, into = c('subID','block','speed','direction'), sep = '_', remove = T) %>%
+  mutate(subID=str_remove(subID, pattern = 'SE')) %>%
+  rename(O1=bin1_O1, Oz=bin1_Oz, O2=bin1_O2) %>%
+  select(-block) %>%
+  pivot_wider(values_from = c(O1, Oz, O2), names_from = c(speed, direction)) %>%
+  write_csv(paste0(path, name, '_JASP.csv'))
+}
+
+# for testing parental electrodes
+JASP_format2 <- function(path, name) {
+  eP <- read_table2(paste0(path, name, '.txt')) %>%
+  separate(ERPset, into = c('subID','block','speed','direction'), sep = '_', remove = T) %>%
+  mutate(subID=str_remove(subID, pattern = 'SE')) %>%
+  rename(P3=bin1_P3, P7=bin1_P7, P4=bin1_P4, P8=bin1_P8) %>%
+  select(-block) %>%
+  pivot_wider(values_from = c(P3, P7, P4, P8), names_from = c(speed, direction)) %>%
+  write_csv(paste0(path, name, '_JASP.csv'))
+}
+
+# for testing prefrontal (eye) electrodes
+JASP_format3 <- function(path, name) {
+  eFp <- read_table2(paste0(path, name, '.txt')) %>%
+  separate(ERPset, into = c('subID','block','speed','direction'), sep = '_', remove = T) %>%
+  mutate(subID=str_remove(subID, pattern = 'SE')) %>%
+  rename(Fp1=bin1_Fp1, Fp2=bin1_Fp2) %>%
+  select(-block) %>%
+  pivot_wider(values_from = c(Fp1, Fp2), names_from = c(speed, direction)) %>%
+  write_csv(paste0(path, name, '_JASP.csv'))
+}
+
+path <- '~/Desktop/erps/TXT/measure_all/'
+name <- 'ePFamp_150190'
+  # P1_80150_peakAmp
+  # P1_80150_peakLat
+  # C1_4060_mAmp
+  # N2amp_in100150
+  # N2amp_out125175
+  # ePamp_140170
+  # ePFamp_150190
+
+JASP_format(path, name)
+JASP_format2(path, name)
+JASP_format3(path, name)
+```
+```{r format for MatLab TXT}
+ERP_format <- function(path, name) {
+  file <- read_table2(paste0(path, name, '.txt'), col_names = 'erpFile') %>%
+  mutate(erpFile=str_replace(erpFile, pattern = 'erps', replacement = 'erps_600')) %>%
+  write.table(file = paste0(path, name,'.txt'), row.names = F, col.names = F, quote = F)
+}
+
+
+path <- '~/Desktop/'
+name <- 'out'
+ERP_format(path, name) 
+
+dir <- c('in', 'out')
+path <- '~/Desktop/erps_600/TXT/individual_io/'
+for (i in 1:26) {
+  for (j in 1:length(dir)) {
+  # if (i %in% c(4,6,24,26)) {
+  # }
+  # else {
+  name <- paste0('SE', i, '_', dir[j])
+  ERP_format(path, name)  
+  # }
+  }
+}
+```
+
+
+```{r ANOVAs, warning=F}
+library(rstatix)  # this package also has commands for pairwise comparison
+library(car)
+library(ggpubr) # some cool and publication-ready plots
+
+str(df_ind_cond)
+aov1 <- anova_test(data = df_ind_cond, M_te~ speed*direction, type = 3, effect.size = 'both') # , correction = 'GG', wid = subid, within = c(speed, direction), 
+get_anova_table(aov1)
+
+# pairwise comparisons
+df_ind_cond %>%
+  pairwise_t_test(
+    M_te ~ speed, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    )
+
+df_ind_cond %>%
+  pairwise_t_test(
+    M_te ~ direction, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    )
+
+# Visualization: box plots with p-values
+# pwc <- pwc %>% add_xy_position(x = "time")
+# bxp + 
+#   stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+#   labs(
+#     subtitle = get_test_label(res.aov, detailed = TRUE),
+#     caption = get_pwc_label(pwc)
+#   )
+```
+
+## LMEMs w/ only behavioral variables 
+```{r LMEMs, warning=F}
+library(lme4)
+
+# df %>% str
+# df %>% count(direction, speed, block)
+
+te1 <- lmer(TimeError ~ trial + block + direction + speed + (1|subid), data=df) # + I(1/trial)
+# sink(paste0(savePath, 'LMEM_new/p_rt_new.txt')); summary(rt1); sink()
+
+ate1 <- lmer(AbsTimeError ~ trial + block + direction + speed + (1|subid), data=df) # + I(1/trial)
+
+summary(te1); summary(ate1)
+```

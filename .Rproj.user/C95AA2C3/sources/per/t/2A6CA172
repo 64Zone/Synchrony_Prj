@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1602240778243.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3160934159",
+    "id" : "2A6CA172",
+    "lastKnownWriteTime" : 1585017017,
+    "last_content_update" : 1585017017,
+    "path" : "~/Desktop/SE/PROC_Sorted_filt/event2rt_v3.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "40,6",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 7,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

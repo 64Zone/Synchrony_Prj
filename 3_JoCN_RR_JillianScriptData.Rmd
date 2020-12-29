@@ -1,0 +1,332 @@
+---
+title: "JoCN_RR_new_LMEMs_Plots_corrData"
+author: "Sicong Liu"
+date: "7/24/2020"
+output:
+  # pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, echo = FALSE, dpi = 300, cache.lazy = FALSE, tidy = "styler", out.width = "100%", fig.align = "center", fig.width = 16, fig.asp = 1.5) 
+
+options(
+        dplyr.print_min=Inf,
+        tibble.width=Inf, 
+        tibble.print_max=20,
+        digits = 3, 
+        scipen=999999
+        )
+```
+
+```{r datasets, include=FALSE}
+rm(list = ls())
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(knitr)
+
+myPath <- '~/Documents/Publications/14.DIVE project/HLM_Jillian/'
+savePath <- '~/Desktop/DiVE_rev/'
+
+df3 <- read_csv(paste0(myPath, 'JOCN_RR_Corrected_EEG_data.csv')) %>%  # new data Jillian supervised
+  arrange(subject, day, block, trial) %>%
+  mutate(trial=rep(1:1440, 20), 
+         rxntime=rxntime*1000,
+         precision=precision*304.8, # convert from the unit of ft to mm
+         day=as.factor(day)) %>% 
+  drop_na()
+
+df3_power <- df3 %>%
+  select(c(subject, day, block, trial, delta_tot, theta_tot, alpha_tot, beta_tot, rxntime, precision)) %>%
+  rename(trialNum=trial)
+
+dfx <- read_csv(paste0(myPath, 'big.csv')) %>% # data w/ centrl trajectory trials removed
+  select(-X1) %>%
+  mutate(rxntime_p5 = rxntime_p5*1000,
+         rxntime_df3 = rxntime_df3*1000,
+         rsptime = rsptime*1000,
+         precision=precision*304.8,
+         day=as.factor(day)) %>%
+  select(-rxntime_p5) %>%   # length(df$rxntime_df3==df$rxntime_p5)
+  dplyr::rename(rxntime=rxntime_df3) %>%
+  select(-c(delta_tot, theta_tot, alpha_tot, beta_tot,  rxntime, precision)) %>%  # remove the old power calculation
+  left_join(df3_power, by=c('subject', 'day', 'block', 'trialNum')) %>% # add the new power calculation
+  mutate(across(c(subject, launchDir), factor))
+```
+
+##### Model alpha, beta power change over the trial number and by day  
+--- see 'alpha_change.txt' & 'alpha_predict.txt'  
+--- see 'beta_change.txt' & 'beta_predict.txt'  
+
+> Reviewer 1: I believe the authors should first report the change of each pre-launch EEG spectral power across trials and then its “predictive power on behavioral outcomes”. I would like to see stronger evidence for such predictive power on a trial-by-trial basis, accounting for the overall correlating trends.   
+
+<span style="color: red;"> *Below the changes of Alpha and Beta power across trials were explored both in the presence of each other (and delta and theta) and without each other as covariates. Results suggests that the variability in Beta could fully account for the change in Alpha across trials, but not vice versa. Considering the five LMEMs included in the orignal submission, the evidence collectively suggests that a part of Beta variability uniquely explain the behavioral learning outcomes even after controlling for those porportion of variablity that can be explained by other spectral bands and trial sequence. Therefore, our initial findings seemed robust.* </span>
+
+```{r model_eeg_power_change, eval=FALSE}
+a <- lmer(alpha_tot ~ trial + day + beta_tot + delta_tot + theta_tot + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/PowerBand_change/alpha_predict.txt')); summary(a); sink()
+b <- lmer(beta_tot ~ trial + day + alpha_tot + delta_tot + theta_tot + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/PowerBand_change/beta_predict.txt')); summary(b); sink()
+
+
+a1 <- lmer(alpha_tot ~ trial + day + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/PowerBand_change/alpha_change.txt')); summary(a1); sink()
+b1 <- lmer(beta_tot ~ trial + day + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/PowerBand_change/beta_change.txt')); summary(b1); sink()
+```
+
+
+# JoCN_RR Results
+
+> Reviewer 1: I’m not sure if and how you can control in the LMEM for the correlating trends over trials between the EEG power and the behavioral outcomes, assuming both are exponential learning curves while the trial number that is in the LMEM can capture only the very early linear trend. Based on fig3 I would guess that this is over the first 3 blocks of visit 1.
+
+<span style="color: red;">*We revised the models based on the Reviewer 1's comments by including the estimation of two more effects in the LMEMs. One effect helps account for the differences associated with different visiting days, and the other effect helps account for the non-linear pattern commented by the reviewer and observed in the visualizations. The effect helping to account for non-linear learning pattern is an inverse function that has been used in motor learning research to approximate the exponential learning curve. This effect was initially modeled as a fixed effect but later changed to a random effect so that individual differences in the curve of early learning phase can be taken into account by the model. Overall, both effects have been shown to be associated with signifincant slope estimates. What is most important, however, is that the results pattern reported in the original manuscript stayed mostly the same, suggesting the robustness of the results.*</span>
+
+##### New - 1: EEG Power Bands alone on RT and Precision
+--- see 'p_p_new.txt' & 'p_rt_new.txt'
+```{r new1, eval=FALSE}
+# p_rt_new_f <- lmer(rxntime ~ alpha_tot + beta_tot + delta_tot + theta_tot + trial + day + I(1/trial) + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/p_rt_new_f.txt')); summary(p_rt_new_f); sink() # fixed-effect non-linear term
+# 
+# p_p_new_f <- lmer(precision ~ alpha_tot + beta_tot + delta_tot + theta_tot + trial + day + I(1/trial) + (1|subject), data=df3); sink(paste0(savePath, 'LMEM_new/p_p_new_f.txt')); summary(p_p_new_f); sink() # fixed-effect non-linear term
+
+p_rt_new <- lmer(rxntime ~ alpha_tot + beta_tot + delta_tot + theta_tot + trial + day + (1 + I(1/trial)|subject), data=df3); sink(paste0(savePath, 'LMEM_new/p_rt_new.txt')); summary(p_rt_new); sink()
+
+p_p_new <- lmer(precision ~ alpha_tot + beta_tot + delta_tot + theta_tot + trial + day + (1 + I(1/trial)|subject), data=df3); sink(paste0(savePath, 'LMEM_new/p_p_new.txt')); summary(p_p_new); sink()
+```
+
+##### New - 2: VEPs alone on RT and Precision
+--- see 'vep_p_new.txt' & 'vep_rt_new.txt'
+```{r new2, warning=FALSE, eval=FALSE}
+# vep_rt_new_f <- lmer(rxntime ~ vepAmp + launchDir + trialNum + day + I(1/trialNum) + (1|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/vep_rt_new_f.txt')); summary(vep_rt_new_f); sink() # fixed-effect non-linear term
+# 
+# vep_p_new_f <- lmer(precision ~ vepAmp + trialNum + day + launchDir + I(1/trialNum) + (1|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/vep_p_new_f.txt')); summary(vep_p_new_f); sink() # fixed-effect non-linear term
+
+vep_rt_new <- lmer(rxntime ~ vepAmp + launchDir + trialNum + day + (1 + I(1/trialNum)|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/vep_rt_new.txt')); summary(vep_rt_new); sink()
+
+vep_rt_new_interaction <- lmer(rxntime ~ vepAmp * launchDir + trialNum + day + (1 + I(1/trialNum)|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/vep_rt_new_interact.txt')); summary(vep_rt_new_interaction); sink()
+
+vep_p_new <- lmer(precision ~ vepAmp + trialNum + day + launchDir + (1+ I(1/trialNum)|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/vep_p_new.txt')); summary(vep_p_new); sink()
+```
+
+##### New - 3: Model X Precition while controlling RT
+--- see 'x_p_new.txt' & 'x_rt_new.txt'
+```{r new3, warning=FALSE, eval=FALSE}
+x_p_new <- lmer(precision ~ alpha_tot + beta_tot + delta_tot + theta_tot + vepAmp +  trialNum + day + launchDir + rxntime + (1 + I(1/trialNum)|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/x_p_new.txt')); summary(x_p_new); sink()
+
+# x_rt_new_f <- lmer(rxntime ~ alpha_tot + beta_tot + delta_tot + theta_tot + vepAmp +  trialNum + day + launchDir + I(1/trialNum) + (1|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/x_rt_new_f.txt')); summary(x_rt_new_f); sink() # fixed-effect non-linear term
+
+x_rt_new <- lmer(rxntime ~ alpha_tot + beta_tot + delta_tot + theta_tot + vepAmp +  trialNum + day + launchDir + (1 + I(1/trialNum)|subject), data=dfx); sink(paste0(savePath, 'LMEM_new/x_rt_new.txt')); summary(x_rt_new); sink()
+```
+
+# Visualization
+##### Further prepare the datasets and plot themes
+```{r prepare_data, include = FALSE}
+library(ggplot2)
+library(viridis)
+library(ggpointdensity)
+
+plot_theme1 <- 
+  theme(plot.title = element_text(face = "bold", hjust = 0, size = 26),
+        plot.subtitle = element_text(face = "italic", hjust = 0, size = 24),
+        # plot.caption = element_text(face = "italic"),
+        axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=18),
+        axis.title.x = element_text(size=22),
+        # axis.title.y = element_text(size=24),
+        strip.text.x = element_text(face='bold', size = 18, colour = "white"),
+        strip.background = element_rect(fill="darkblue"),
+        legend.title = element_text(color = "black", size = 24),
+        legend.text=element_text(size=26),
+        legend.background = element_rect(fill = "gray90"),
+        legend.position="bottom") 
+
+plot_theme2 <- 
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0, size = 22),
+        plot.subtitle = element_text(face = "italic", hjust = 0, size = 20),
+        # plot.caption = element_text(face = "italic"),
+        # axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size=20),
+        axis.title.x = element_text(size=24),
+        axis.title.y = element_text(size=24),
+        axis.line = element_line(color = 'gray'),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.border = element_blank(),
+        strip.text.x = element_text(face='bold', size = 18, colour = "white"),
+        # strip.background = element_rect(fill="darkblue"),
+        legend.title = element_text(color = "black", size = 24),
+        legend.text=element_text(size=26),
+        # legend.background = element_rect(fill = "gray90"),
+        legend.position="bottom") 
+
+df3_plot <- df3 %>% 
+  rename(reaction_time = rxntime, 
+         alpha_power = alpha_tot,
+         beta_power = beta_tot) %>%
+  group_by(subject) %>%
+  mutate(across(c(precision, reaction_time, alpha_power, beta_power), ~ replace(., abs(scale(.))>3, NA))) %>%  # remove 3_SD outliers
+  ungroup() %>%
+  drop_na(c(precision, reaction_time, alpha_power, beta_power)) 
+
+dfx_plot <- dfx %>% 
+  rename(reaction_time = rxntime, 
+         vep_amplitude = vepAmp,
+         beta_power = beta_tot) %>%
+  group_by(subject) %>%
+  mutate(across(c(precision, reaction_time, vep_amplitude, beta_power), ~ replace(., abs(scale(.))>3, NA))) %>%
+  ungroup() %>%
+  drop_na(c(precision, reaction_time, vep_amplitude, beta_power))
+```
+
+##### Plot individuals' reaction time and precision over the trial number
+> Reviewer 1: The results for the EEG are given only through the LMEM summary stats and are missing figures and numbers that would help the reader get a sense of the data and appreciate the robustness and the significance of the results. Specifically, I would like to see the trends of the alpha and beta power increase and the reaction time decrease over trials (just like we for Shot Error in fig3), as well as the within and between subject variability of these measures. 
+
+<span style="color: red;">*The plots below help illustrate the fast behavioral learning at the start of training, which is accounted for by the inverse function term in the new models above.*</span>
+
+```{r plot1_behavior_trial}
+df3_plot %>% 
+  pivot_longer(cols = c(precision, reaction_time)) %>%  
+  ggplot(aes(x = trial, y = value)) +
+    geom_point(alpha=0.3, size=0.1) +
+    geom_smooth(method = 'loess') + 
+    facet_wrap(name ~ subject, scales = 'free_y', ncol = 5) +
+    labs(title = "Variables (all trajectory trials) changing across trial sequence for each subject",
+         subtitle = "Top banner (Y-axis variable) \nBottom banner (Subject Number)",
+         y = NULL,
+         x = "Trial Sequence") +
+    plot_theme1
+
+dfx_plot %>% 
+  pivot_longer(cols = c(precision, reaction_time)) %>%  
+  ggplot(aes(x = trialNum, y = value)) +
+    geom_point(alpha=0.3, size=0.1) +
+    geom_smooth(method = 'loess') + 
+    facet_wrap(name ~ subject, scales = 'free_y', ncol = 5) +
+    labs(title = "Variables (no central trajectory trials) changing across trial sequence for each subject",
+         subtitle = "Top banner (Y-axis variable) \nBottom banner (Subject Number) \nTrial with central trajectories are excluded to test VEP prediction",
+         y = NULL,
+         x = "Trial Sequence") +
+    plot_theme1 
+```
+
+##### Plot individuals' alpha and beta power, as well as VEP amplitude over the trial number and by day
+> Reviewer 1: The results for the EEG are given only through the LMEM summary stats and are missing figures and numbers that would help the reader get a sense of the data and appreciate the robustness and the significance of the results. Specifically, I would like to see the trends of the alpha and beta power increase and the reaction time decrease over trials (just like we for Shot Error in fig3), as well as the within and between subject variability of these measures. 
+
+<span style="color: red;">*The plots below help illustrate and check the reviewer's hypotheses in that the alpha and beta power seemed to be increasing across trials based on each visiting day.*</span>
+
+```{r plot2_eeg_trial_day}
+df3_plot %>%
+  pivot_longer(cols = c(alpha_power, beta_power)) %>%  
+  ggplot(aes(x = trial, y = value, group = day, fill = day)) +
+    geom_point(alpha=0.3, size=0.1) +
+    geom_smooth(method = 'lm') + 
+    scale_fill_viridis(discrete = T) + # if F, is continuous scale; 
+    facet_wrap(name ~ subject, scales = 'free_y', ncol = 5) +
+    labs(title = "Variables (all trajectory trials) changing across trial sequence for each subject",
+         subtitle = "Top banner (Y-axis variable) \nBottom banner (Subject Number)",
+         y = NULL,
+         x = "Trial Sequence") +
+    plot_theme1
+
+dfx_plot %>%
+  pivot_longer(cols = c(vep_amplitude, beta_power)) %>%  
+  ggplot(aes(x = trialNum, y = value, group = day, fill = day)) +
+    geom_point(alpha=0.3, size=0.1) +
+    geom_smooth(method = 'lm') + 
+    scale_fill_viridis(discrete = T) + 
+    facet_wrap(name ~ subject, scales = 'free_y', ncol = 5) +
+    labs(title = "Variables (no central trajectory trials) changing across trial sequence for each subject",
+         subtitle = "Top banner (Y-axis variable) \nBottom banner (Subject Number) \nTrial with central trajectories are excluded to test VEP prediction",
+         y = NULL,
+         x = "Trial Sequence") +
+    plot_theme1 
+```
+
+##### Plot group-level behavioral outcomes, alpha and beta power over the trial number and by day
+> Reviewer 1: The results for the EEG are given only through the LMEM summary stats and are missing figures and numbers that would help the reader get a sense of the data and appreciate the robustness and the significance of the results. Specifically, I would like to see the trends of the alpha and beta power increase and the reaction time decrease over trials (just like we for Shot Error in fig3), as well as the within and between subject variability of these measures. 
+
+> Reviewer 2: There are no visualisations of the preparatory EEG signal in any format. It is difficult to examine an EEG paper without this information. This is particularly important given that the beta power differences are a central part of the story.
+
+<span style="color: red;">*In addition to previous plots showing trial-level variability across individuals, we generated the below block-level group M & SD plots for the four most important varaibles, including precision (which replicates Figure 3B), rt, alpha, beta.*</span>
+
+```{r plot3_group,  fig.asp = 0.7, fig.width = 12}
+df3_group <- read_csv(paste0(myPath, 'tbl_bandpower_trial_v3.csv')) %>%  
+  arrange(subject, day, block) %>%
+  mutate(trial = rep(1:1440, 20), 
+         rxntime = rxntime*1000,
+         precision = precision*304.8, 
+         day = as.factor(day)) %>%   
+  rename(rt = rxntime, 
+         alpha_power = alpha_tot,
+         beta_power = beta_tot) %>%
+  group_by(subject, day, block) %>%
+  summarise(rt_m = mean(rt, na.rm = T),
+            precision_m = mean(precision, na.rm = T),
+            alpha_power_m = mean(alpha_power, na.rm = T),
+            beta_power_m = mean(beta_power, na.rm = T)) %>%
+  ungroup() %>% 
+  group_by(day, block) %>% 
+  summarise(rt_group_mean = mean(rt_m),
+            precision_group_mean = mean(precision_m),
+            alpha_power_m_group = mean(alpha_power_m),
+            beta_power_m_group = mean(beta_power_m),
+            
+            rt_group_sd = sd(rt_m),
+            precision_group_sd = sd(precision_m),
+            alpha_power_sd_group = sd(alpha_power_m),
+            beta_power_sd_group = sd(beta_power_m)) %>%
+  ungroup() %>%
+  mutate(block = as.factor(block))
+ 
+df3_group %>% # precision (replicate Figure 3B)
+  ggplot(aes(x = block, y = precision_group_mean, group = day, color = day)) +
+    geom_point(size = 7) +
+    geom_errorbar(aes(ymin = precision_group_mean - precision_group_sd, 
+                      ymax = precision_group_mean + precision_group_sd), width = 0.2, position=position_dodge(0.05)) +
+    geom_line(size = 2) + 
+    scale_color_viridis(discrete = T) +
+    labs(title = "M & SD across block sequence given day for the entire group",
+         subtitle = "",
+         y = 'Precision (mm)',
+         x = "Block Number") +
+    plot_theme2 
+
+df3_group %>% # rt
+  ggplot(aes(x = block, y = rt_group_mean, group = day, color = day)) +
+    geom_point(size = 7) +
+    geom_errorbar(aes(ymin = rt_group_mean - rt_group_sd, 
+                      ymax = rt_group_mean + rt_group_sd), width = 0.2, position=position_dodge(0.05)) +
+    geom_line(size = 2) + 
+    scale_color_viridis(discrete = T) +
+    labs(title = "M & SD across block sequence given day for the entire group",
+         subtitle = "",
+         y = 'Reaction Time (ms)',
+         x = "Block Number") +
+    plot_theme2 
+
+df3_group %>% # alpha power
+  ggplot(aes(x = block, y = alpha_power_m_group, group = day, color = day)) +
+    geom_point(size = 7) +
+    geom_errorbar(aes(ymin = alpha_power_m_group - alpha_power_sd_group, 
+                      ymax = alpha_power_m_group + alpha_power_sd_group), width = 0.2, position=position_dodge(0.05)) +
+    geom_line(size = 2) + 
+    scale_color_viridis(discrete = T) +
+    labs(title = "M & SD across block sequence given day for the entire group",
+         subtitle = "",
+         y = 'Alpha band power (dB)', # quote(alpha)
+         x = "Block Number") +
+    plot_theme2 
+
+df3_group %>% # beta power
+  ggplot(aes(x = block, y = beta_power_m_group, group = day, color = day)) +
+    geom_point(size = 7) +
+    geom_errorbar(aes(ymin = beta_power_m_group - beta_power_sd_group, 
+                      ymax = beta_power_m_group + beta_power_sd_group), width = 0.2, position=position_dodge(0.05)) +
+    geom_line(size = 2) + 
+    scale_color_viridis(discrete = T) +
+    labs(title = "M & SD across block sequence given day for the entire group",
+         subtitle = "",
+         y = 'Beta band power (dB)',
+         x = "Block Number") +
+    plot_theme2 
+```
+

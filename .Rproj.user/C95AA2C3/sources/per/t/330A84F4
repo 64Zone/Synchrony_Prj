@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1601929794430.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "4058415464",
+    "id" : "330A84F4",
+    "lastKnownWriteTime" : 1599148109,
+    "last_content_update" : 1599148109,
+    "path" : "~/Desktop/SE/R_synchronyEEG/5_JoCN_RR_ERDs_bufferZone.Rmd",
+    "project_path" : "5_JoCN_RR_ERDs_bufferZone.Rmd",
+    "properties" : {
+        "cursorPosition" : "324,2",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

@@ -1,0 +1,6 @@
+"0","p_rt_new <- lmer(TimeError ~ speed*direction + delta + theta + alpha + beta + trial + (1 + I(exp(-trial))|subid), data=df); sink(paste0('/Desktop/', 'LMEM1.txt')); summary(p_rt_new); sink()
+"
+"2","cannot open file '/Desktop/LMEM1.txt': No such file or directory"
+"2","Error in file(file, if (append) ""a"" else ""w"") : 
+  cannot open the connection
+"

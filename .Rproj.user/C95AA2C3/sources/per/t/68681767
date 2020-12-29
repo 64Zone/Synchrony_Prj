@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1605357305706.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3691851306",
+    "id" : "68681767",
+    "lastKnownWriteTime" : 1598641794,
+    "last_content_update" : 1598641794,
+    "path" : "~/Desktop/BoxCoxTrans_rmANOVA.Rmd",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "96,0",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 8,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

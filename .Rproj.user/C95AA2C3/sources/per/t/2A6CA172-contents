@@ -1,0 +1,136 @@
+rm(list = ls())
+library(tidyverse)
+## Overall data description
+Expname = 'SE'
+speed234 = c('20','30','40','20','30','40')
+speed243 = c('20','40','30','20','40','30')
+speed324 = c('30','20','40','30','20','40')
+speed342 = c('30','40','20','30','40','20') 
+speed432 = c('40','30','20','40','30','20') 
+speed423 = c('40','20','30','40','20','30')
+dirIO = c('in','in','in','out','out','out')
+dirOI = c('out','out','out','in','in','in')
+IDnum = 1:26  
+Blocknum = 1:6
+IDspeed = c(speed234,speed234,speed243,speed324,speed243,speed324,speed423,speed423,    #SE1-8  
+            speed423,speed324,speed432,speed234,speed243,speed432,speed234,speed342,     #SE9-16
+            speed324,speed432,speed432,speed342,speed243,speed423,speed243,speed342,     #SE17-24
+            speed324,speed423)                                                          
+IDdir = c(dirIO,dirOI,dirOI,dirOI,dirIO,dirIO,dirIO,dirOI,  #SE1-8
+          dirOI,dirOI,dirOI,dirIO,dirIO,dirIO,dirOI,dirOI,  #SE9-16
+          dirIO,dirIO,dirOI,dirIO,dirOI,dirIO,dirOI,dirIO,  #SE17-24
+          dirIO,dirIO)                                      #SE25-26 
+rootPath = '~/Desktop/SE/PROC_Sorted_filt/'
+varName <- c('TrialNum','EEG_RT','Response','TimeError')
+
+## correct the mistaken LED location in inbound conditions
+ID_flag1 <- c(14, 20)
+ID_flag2 <- 15
+block_flag1 <- c(1,2,3) # SE14, SE20
+block_flag2 <- c(4,5,6) # SE15
+# constant 20mph - 554+6 = 560; 30mph - 373+4 = 377; 40mph - 282+3 = 285. 
+# The adjustments were based on comparing SE14's old calculations and videos using all the 150 trials for each block
+
+
+## generate data file for each trial block
+for (i in 1:length(IDnum)) {
+  for (j in 1:length(Blocknum)) {
+    
+    if( (i %in% ID_flag1 & j %in% block_flag1) | (i %in% ID_flag2 & j %in% block_flag2) ) {  # rectified LED location
+      k <- 1 # initialize incremantal factor
+      Condition.Constant <- ifelse(IDspeed[6*(i-1)+j]=='40', 285, ifelse(IDspeed[6*(i-1)+j]=='30', 377, 560)) # theoretical time of conditionwise perfect RT 
+      eventHead <- paste0(Expname, IDnum[i], '_',  Blocknum[j], '_', IDspeed[6*(i-1)+j], '_', IDdir[6*(i-1)+j])
+      path <- paste0(rootPath, Expname, IDnum[i], '/', Blocknum[j], '_', IDspeed[6*(i-1)+j], '_', IDdir[6*(i-1)+j], '/')
+      eventFile <- paste0(path, eventHead, '_events.txt')
+      
+      a <- read.table(eventFile, skip = 28)[-1, ] # data
+      a[12] <- ifelse(a[12]==']', 99, ifelse(a[12]=='1]', 1, ifelse(a[12]=='2]', 2, 3))) # categorize: 99-RT, 1-Resp, 2-NoResp, 3-WrResp
+      RT <- matrix(NA, nrow(a), length(varName)) # pre-allocate space
+      
+      for (u in 1:nrow(a)){
+        if (a[u,12] == 1 | a[u,12] == 2 | a[u,12] == 3){
+          RT[k,1] <- k
+          RT[k,2] <- round(a[u+1,6], digits = 0)
+          RT[k,3] <- a[u,12]
+          RT[k,4] <- RT[k,2] - Condition.Constant
+          k <- k+1
+        }
+      }
+      RT <- as.data.frame(na.omit(RT))
+      names(RT) <- varName
+      write.csv(RT, ifelse(nrow(RT)<150, paste0(path, '*RT_', eventHead,'.csv'), # mark the missing events
+                           ifelse(nrow(RT)>150, paste0(path, '#RT_', eventHead,'.csv'), # check extra events
+                                  paste0(path, 'RT_', eventHead,'.csv'))))
+    }
+    
+    
+    else {  
+      k <- 1 # initialize incremantal factor
+      Condition.Constant <- ifelse(IDspeed[6*(i-1)+j]=='40', 282, ifelse(IDspeed[6*(i-1)+j]=='30', 373, 554)) # theoretical time of conditionwise perfect RT 
+      eventHead <- paste0(Expname, IDnum[i], '_',  Blocknum[j], '_', IDspeed[6*(i-1)+j], '_', IDdir[6*(i-1)+j])
+      path <- paste0(rootPath, Expname, IDnum[i], '/', Blocknum[j], '_', IDspeed[6*(i-1)+j], '_', IDdir[6*(i-1)+j], '/')
+      eventFile <- paste0(path, eventHead, '_events.txt')
+      
+      a <- read.table(eventFile, skip = 28)[-1, ] # data
+      a[12] <- ifelse(a[12]==']', 99, ifelse(a[12]=='1]', 1, ifelse(a[12]=='2]', 2, 3))) # categorize: 99-RT, 1-Resp, 2-NoResp, 3-WrResp
+      RT <- matrix(NA, nrow(a), length(varName)) # pre-allocate space
+      
+      for (u in 1:nrow(a)){
+        if (a[u,12] == 1 | a[u,12] == 2 | a[u,12] == 3){
+          RT[k,1] <- k
+          RT[k,2] <- round(a[u+1,6], digits = 0)
+          RT[k,3] <- a[u,12]
+          RT[k,4] <- RT[k,2] - Condition.Constant
+          k <- k+1
+        }
+      }
+      RT <- as.data.frame(na.omit(RT))
+      names(RT) <- varName
+      write.csv(RT, ifelse(nrow(RT)<150, paste0(path, '*RT_', eventHead,'.csv'), # mark the missing events
+                           ifelse(nrow(RT)>150, paste0(path, '#RT_', eventHead,'.csv'), # check extra events
+                                  paste0(path, 'RT_', eventHead,'.csv'))))
+    }
+  }
+}
+
+## pool the RT data together to be joined with EEG Power Band data
+library("readxl") # readin xlsx
+dataPath <- '~/Desktop/SE/PROC_Sorted_filt_TRIAL/ML_data/'
+# df_power <- read_excel(paste0(dataPath, 'bandpower_30hz_C3C4Cz.xlsx'), sheet = 1) %>% select(-`...9`)
+df_power <- read_excel(paste0(dataPath, 'bandpower_30hz_P3P4Pz.xlsx'), sheet = 1) %>% select(-`...9`)
+
+## add in 'speed' & 'direction' factors
+factorName <- c('speed', 'direction')
+speed_direction <- matrix(NA, 23400, length(factorName))
+s <- 1
+for (i in 1:length(IDnum)) {
+  for (j in 1:length(Blocknum)) {
+    for (k in 1:150) {
+     speed_direction[s,1] <- IDspeed[6*(i-1)+j]
+     speed_direction[s,2] <- IDdir[6*(i-1)+j]
+     s <- s + 1
+    }
+  }
+}
+colnames(speed_direction) <- factorName
+speed_direction <- as_tibble((speed_direction))
+
+## compile RT files, combine with factor files and EEG power files, index trials to be removed
+files <- sort(list.files('~/Desktop/RTdata_filler_2combine/'))
+fileList <- lapply(paste0('~/Desktop/RTdata_filler_2combine/',files), read_csv)
+df <- do.call(rbind, fileList)[-1] %>%
+  mutate(subid=rep(1:26, each=6*150), block=rep(rep(1:6, each=150), times=26)) %>%
+  rename(trial=TrialNum) %>%   # to be consistent with EEG power file
+  bind_cols(speed_direction) %>%
+  full_join(df_power, by=c('subid','block','trial')) %>%
+  mutate(fillerTrial=ifelse(subid==4&block==4&trial==150 |      # index those fake filler trials needed in spectra power calc
+                            subid==4&block==5&trial==150 |
+                            subid==6&block==3&trial==150 |
+                            subid==6&block==6&trial>146 |
+                            subid==12&block==5&trial==150 |
+                            subid==12&block==6&trial>147 |
+                            subid==14&block==4&trial==150 |
+                            subid==19&block==6&trial==150, 1, 0))
+
+# isFALSE(df_power$subid==df$subid & df_power$block==df$block & df_power$trial==df$trial) # testing the index and alignment (all good!)
+write_csv(df, '~/Desktop/RT_EEGpower_30hz_P3P4Pz.csv')

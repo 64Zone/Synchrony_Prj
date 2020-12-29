@@ -1,0 +1,106 @@
+---
+title: "BoxCoxTrans_LB_data"
+author: "Sicong Liu"
+date: "8/28/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, echo = FALSE, dpi = 300, cache.lazy = FALSE, tidy = "styler", out.width = "100%", fig.align = "center") 
+
+options(
+        dplyr.print_min=Inf,
+        tibble.width=Inf, 
+        tibble.print_max=20,
+        digits = 3, 
+        scipen=999999
+        )
+```
+
+### Data pre-processing
+```{r data, include=TRUE, echo=TRUE}
+rm(list = ls())
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(ggplot2)
+library(ggridges)
+myPath <- '~/Desktop/'
+savePath <- '~/Desktop/'
+
+df <- read.csv(paste0(myPath, 'acc_3factors.csv')) %>%
+  pivot_longer(c(Afa,Afs,Apa,Aps,Mfa,Mfs,Mpa,Mps)) %>%
+  mutate(task = substring(name, first = 1, last = 1),
+         stimulation = substring(name, first = 2, last = 2),
+         target = substring(name, first = 3, last = 3)) %>%
+  mutate(across(c(subjects, name, task, stimulation, target), factor)) %>%
+  rename(Condition_Factorial=name, Observation=value)
+
+df %>%                # get a sense of data dispersion
+  group_by(task, stimulation, target) %>%
+  summarise(std = sd(Observation))
+
+df_trans <- df %>%    # try to deal with bounded scores by adding some variability
+  mutate(Observation_trans = ifelse(Observation==1, Observation + rnorm(length(Observation==1), 0, .1), Observation))
+```
+
+### Visualize the unmodeled data
+```{r, echo=TRUE}
+library(ggpubr) # some cool and publication-ready plots
+df %>%
+  ggplot(aes(x = Observation, y = Condition_Factorial)) + 
+    geom_density_ridges(quantile_lines = T) 
+
+df %>%
+  ggplot(aes(x = Observation)) + 
+    geom_histogram() + 
+    facet_grid(task~stimulation+target)
+
+df_trans %>%
+  ggplot(aes(x = Observation_trans, y = Condition_Factorial)) + 
+    geom_density_ridges(quantile_lines = T) 
+
+df_trans %>%
+  ggplot(aes(x = Observation_trans)) + 
+    geom_histogram() + 
+    facet_grid(task~stimulation+target)
+```
+
+### Try 'pseudo' Box-Cox transformation and test normality
+```{r, include=TRUE, echo=TRUE}
+library(rstatix)  # this package also has commands for pairwise comparison
+library(car)
+
+## fit the model and run normality test
+res.aov <- anova_test(data = df, Observation~task*stimulation*target, wid = subjects, within = c(task, stimulation, target))
+get_anova_table(res.aov)
+# class(res.aov)
+df %>%
+  mutate(residual=residuals(attr(res.aov, "args")$model)) %>%       # get the model residuals
+  group_by(task, stimulation, target) %>%                           # original data
+  summarise(test_stats = shapiro.test(residual)$statistic,          # test the normality with shapiro
+            test_p = shapiro.test(residual)$p.value,
+            test_name = shapiro.test(residual)$method,
+            test_data = shapiro.test(residual)$data.name)
+
+# Box-Cox Transformation (it is 'pseudo' by assuming between-individual factors)
+boxcox_trans <- powerTransform(Observation ~ task * stimulation * target, data = df, family = "bcPower")
+observation_bc_scale <- scale(bcPower(as.matrix(df$Observation), boxcox_trans$roundlam))     
+
+## fit the model with BC transformed data and run normality test again
+df2 <- df %>% 
+  mutate(observation_new=observation_bc_scale)
+res.aov2 <- anova_test(data = df2, observation_new ~ task*stimulation*target, wid = subjects, within = c(task, stimulation, target))
+get_anova_table(res.aov2)
+
+df2 %>%
+  mutate(residual=residuals(attr(res.aov2, "args")$model)) %>%      # get the model residuals
+  group_by(task, stimulation, target) %>%                           # bc transformed data
+  summarise(test_stats = shapiro.test(residual)$statistic,          # test the normality with shapiro
+            test_p = shapiro.test(residual)$p.value,
+            test_name = shapiro.test(residual)$method,
+            test_data = shapiro.test(residual)$data.name)
+
+```

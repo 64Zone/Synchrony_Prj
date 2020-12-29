@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1606614458669.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3966296521",
+    "id" : "2BE00F6E",
+    "lastKnownWriteTime" : 1576873167,
+    "last_content_update" : 1576873167,
+    "path" : "~/Documents/Porject_completed/BSB_Training/BSBt_Pipeline_final/R_code/BP/4.BP_combineIU_newCriteria_p.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "15,39",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 9,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

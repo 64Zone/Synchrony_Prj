@@ -1,0 +1,5 @@
+"0","df <- read_table2(paste0(path, name, '.txt'))
+"
+"2","Error in read_table2(paste0(path, name, "".txt"")) : 
+  could not find function ""read_table2""
+"

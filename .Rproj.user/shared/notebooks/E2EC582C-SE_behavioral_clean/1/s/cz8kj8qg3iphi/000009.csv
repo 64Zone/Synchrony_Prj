@@ -1,0 +1,10 @@
+"0","df_ind_cond <- df %>%                                                                                         
+  group_by(subid, speed, direction) %>%
+  summarise(M_te = mean(TimeError, na.rm=T),
+            SD_te = sd(TimeError, na.rm = T),
+            M_abs_te = mean(AbsTimeError, na.rm=T),
+            SD_abs_te = sd(AbsTimeError, na.rm = T)) %>%
+  ungroup() 
+"
+"2","`summarise()` regrouping output by 'subid', 'speed' (override with `.groups` argument)
+"

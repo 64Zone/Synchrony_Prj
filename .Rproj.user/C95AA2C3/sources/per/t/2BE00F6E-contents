@@ -1,0 +1,172 @@
+rm(list = ls())
+library(tidyverse)
+library(plyr)
+fsav <- '~/Google Drive/BSBt_Pipeline/Results/BP/'
+
+### read in IU BP data
+player <- c('Player_A','Player_B','Player_C','Player_E','Player_F','Player_G','Player_H','Player_K')
+condition <- c('MVT',   'MVT',      'DVT',      'DVT',    'MVT',     'DVT',      'MVT',     'DVT')
+ppLoc <- c('pre','post')
+basePath <- "~/Google Drive/BSBt_Pipeline/Data_raw/IU_BPdata2018"
+
+df.pp <- lapply(1:2, function(j){
+  mylist <- list()
+  for (i in 1:length(player)) {
+    myPath <- setwd(paste0(basePath,'/',player[i],'/',ppLoc[j],'/'))
+    temp <- list.files(pattern="*.csv")
+    myfiles <- lapply(temp, read.csv)
+    df.t <- na.omit(do.call(rbind, myfiles)[c('Date','Pitch','Velo','LA','Dist')])    # dropped cases with missing values
+    df.t['BatterId'] <- player[i]
+    df.t['Condition'] <- condition[i]
+    mylist[[i]] <- df.t 
+  }
+  mylist <- do.call(rbind, mylist)
+})
+
+df.pp[[1]] <- subset(df.pp[[1]], df.pp[[1]]$Dist >= 10 & df.pp[[1]]$LA >= -20 & df.pp[[1]]$Velo >= 50) # obs: 1613 -> 1404
+df.pp[[2]] <- subset(df.pp[[2]], df.pp[[2]]$Dist >= 10 & df.pp[[2]]$LA >= -20 & df.pp[[2]]$Velo >= 50) # obs: 1624 -> 1460
+
+df1.pre.indiv <- ddply(df.pp[[1]], .(BatterId), function(x) {    
+  RelSpeed. <- mean(x$Pitch)
+  ExitSpeed. <- mean(x$Velo)
+  Angle. <- mean(x$LA)
+  Distance. <- mean(x$Dist)
+  Condition. <- x$Condition[1]
+  
+  RelSpeed.sd <- sd(x$Pitch)
+  ExitSpeed.sd <- sd(x$Velo)
+  Angle.sd <- sd(x$LA)
+  Distance.sd <- sd(x$Dist)
+  
+  data.frame(RelSpeed=RelSpeed., ExitSpeed=ExitSpeed., Angle=Angle., Distance=Distance., Condition=Condition.,
+             RelSpeed_sd=RelSpeed.sd, ExitSpeed_sd=ExitSpeed.sd, Angle_sd=Angle.sd, Distance_sd=Distance.sd)
+})
+
+df1.post.indiv <- ddply(df.pp[[2]], .(BatterId), function(x) {    
+  RelSpeed. <- mean(x$Pitch)
+  ExitSpeed. <- mean(x$Velo)
+  Angle. <- mean(x$LA)
+  Distance. <- mean(x$Dist)
+  Condition. <- x$Condition[1]
+  
+  RelSpeed.sd <- sd(x$Pitch)
+  ExitSpeed.sd <- sd(x$Velo)
+  Angle.sd <- sd(x$LA)
+  Distance.sd <- sd(x$Dist)
+  
+  data.frame(RelSpeed=RelSpeed., ExitSpeed=ExitSpeed., Angle=Angle., Distance=Distance., Condition=Condition.,
+             RelSpeed_sd=RelSpeed.sd, ExitSpeed_sd=ExitSpeed.sd, Angle_sd=Angle.sd, Distance_sd=Distance.sd)
+})
+
+colnames(df1.pre.indiv)[2:10] <- paste0('pre_', colnames(df1.pre.indiv)[2:10])
+colnames(df1.post.indiv)[2:10] <- paste0('post_', colnames(df1.post.indiv)[2:10])
+df.comb <- merge(df1.pre.indiv, df1.post.indiv, by='BatterId')
+
+### read in prepost eval data
+df2<- read.csv('~/Google Drive/BSBt_Pipeline/Data_processed/prepostData_final.csv')[c('pre_USER_ID','SessionNum','prePerfExp','postPerfExp','expPerfChg')]
+names(df2)[1] <- 'user_ID'
+names(df.comb)[1] <- 'user_ID'
+df.comb$user_ID <- c('IU_A','IU_B','IU_C','IU_E','IU_F','IU_G','IU_H','IU_K')
+
+df <- merge(df2, df.comb, by='user_ID')
+names(df)[10] <- 'Condition' #pre_Condition
+df <- df[-19]
+df['Site'] <- 'IU'
+
+df2 <- read.csv('~/Google Drive/BSBt_Pipeline/Data_processed/duke_postTrainingBPObs.csv')[-c(1,2,8)]
+df2['Site'] <- 'Duke'
+df <- rbind(df, df2)
+write.csv(df,'~/Google Drive/BSBt_Pipeline/Data_processed/BP_combined_newCriteria_DukePostTrainingBP.csv')
+
+### ------------------- fit ANCOVAs and dose-response models (Pre-registered Hypothesis 3) --------------------------
+df <- read.csv('~/Google Drive/BSBt_Pipeline/Data_processed/BP_combined_newCriteria_DukePostTrainingBP.csv')
+
+## Testing differential expectations at pre, post, and gain score. And received training session number
+expect_vars <- c("prePerfExp","postPerfExp","expPerfChg")
+expect_covariates <- 'Condition'
+
+exp_models <- lapply(1:length(expect_vars), function(i){          
+  formula <- as.formula(paste0(expect_vars[i], "~", paste(expect_covariates, collapse = '+')))
+  lm(formula, data = df) 
+})
+
+# export results
+sink(paste0(fsav,"Expect.txt"))
+for (i in 1:length(expect_vars)) {
+  print(c("Model for -----------------------------------------", paste0(expect_vars[i])))
+  print(formula(exp_models[[i]]))
+  print(summary.lm(exp_models[[i]]))
+  print('--------------------------------- testing received training session number between groups -----------------------------------------------')
+  print(summary(lm(SessionNum~Condition, data = df)))
+}
+sink() 
+
+## check baseline difference
+# run regression models
+predictor_b <- c('Condition', 'prePerfExp','Site')
+dv_b <- c("pre_ExitSpeed", "pre_Angle", "pre_Distance" )
+
+lm_models_b <- lapply(1:3, function(i){
+  formula <- as.formula(paste0(dv_b[i], '~',
+                               paste(predictor_b, collapse = "+")))
+  lm(formula, data = df)
+})
+
+# export results
+sink(paste0(fsav,'DukeIU_baseline.txt'))
+for (j in 1:3) {
+  print(paste0("Pre-registered ANCOVA Model Results for ----------------------------------------------------- ", dv_b[j]))
+  print(formula(lm_models_b[[j]]))
+  print(summary(lm_models_b[[j]]))
+}
+sink() 
+
+## fit pre-registered ANCOVA models
+options(digits=3, scipen=999, max.print=999999)
+df$Condition <- factor(df$Condition, levels = c('MVT','DVT'))
+# run regression models
+predictor <- c('Condition', 'prePerfExp', 'Site')
+covar <- c("pre_ExitSpeed", "pre_Angle", "pre_Distance" )
+dv <- c("post_ExitSpeed", "post_Angle", "post_Distance" )
+
+lm_models <- lapply(1:3, function(i){
+  right <- c(covar[i], predictor)
+  formula <- as.formula(paste0(dv[i], '~',
+                               paste(right, collapse = "+")))
+  lm(formula, data = df)
+})
+
+# export results
+sink('~/Google Drive/BSBt_Pipeline/Results/BP/DukeIU.txt')
+for (j in 1:3) {
+  print(paste0("Pre-registered ANCOVA Model Results for ----------------------------------------------------- ", dv[j]))
+  print(formula(lm_models[[j]]))
+  print(summary(lm_models[[j]]))
+}
+sink()  
+
+# ## test dose-response relationships based on previous ANCOVAs: post ~ dosage + pre + site + prePerfExp
+# ## unlike the LMEM, this model is treating the dose-response as a between-individual factor
+# df1 <- subset(df, df$Condition=='DVT')
+# 
+# # run regression models
+# predictor <- c('SessionNum','prePerfExp', 'Site')
+# covar <- c("pre_ExitSpeed","pre_Angle", "pre_Distance" )
+# dv <- c("post_ExitSpeed","post_Angle", "post_Distance" )
+# 
+# lm_models <- lapply(1:length(dv), function(i){
+#   right <- c(covar[i], predictor)
+#   formula <- as.formula(paste0(dv[i], '~',
+#                                paste(right, collapse = "+")))
+#   lm(formula, data = df)
+# })
+# 
+# # export results
+# setwd('~/Google Drive/BSBt_Pipeline/Results/BP/')
+# sink('DoseResponse.txt')
+# for (j in 1:length(dv)) {
+#   print(paste0("Dose-Response Results for ----------------------------------------------------- ", dv[j]))
+#   print(formula(lm_models[[j]]))
+#   print(summary(lm_models[[j]]))
+# }
+# sink()
